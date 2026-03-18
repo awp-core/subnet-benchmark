@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Benchmark Miner Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0f;--surface:#12121a;--surface2:#1a1a28;--border:#1e1e2e;--text:#e0e0e0;--muted:#888;--accent:#7c5cfc;--accent2:#5ce0d8;--green:#4ade80;--red:#f87171;--yellow:#fbbf24;--gradient:linear-gradient(135deg,#7c5cfc,#5ce0d8)}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+a{color:var(--accent2);text-decoration:none}
+
+/* Layout */
+.app{display:flex;min-height:100vh}
+.sidebar{width:240px;background:var(--surface);border-right:1px solid var(--border);padding:1.5rem 0;display:flex;flex-direction:column;position:fixed;height:100vh;overflow-y:auto}
+.sidebar .logo{padding:0 1.5rem;font-weight:700;font-size:1.15rem;background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:2rem}
+.sidebar .logo a{background:var(--gradient);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.nav-item{padding:.65rem 1.5rem;color:var(--muted);cursor:pointer;font-size:.9rem;transition:all .15s;border-left:3px solid transparent}
+.nav-item:hover{color:var(--text);background:var(--surface2)}
+.nav-item.active{color:var(--accent2);border-left-color:var(--accent2);background:var(--surface2)}
+.nav-section{padding:.5rem 1.5rem;font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-top:1.5rem}
+.sidebar-footer{margin-top:auto;padding:1rem 1.5rem;border-top:1px solid var(--border)}
+.wallet-info{font-size:.8rem;color:var(--muted);word-break:break-all}
+.wallet-addr{color:var(--accent2);font-family:monospace;font-size:.8rem}
+.main{margin-left:240px;flex:1;padding:2rem;max-width:1000px}
+
+/* Connect */
+.connect-screen{display:flex;align-items:center;justify-content:center;min-height:80vh;flex-direction:column;gap:1.5rem;text-align:center}
+.connect-screen h2{font-size:1.8rem;font-weight:700}
+.connect-screen p{color:var(--muted);max-width:400px}
+.btn{padding:.6rem 1.5rem;border-radius:8px;font-weight:600;font-size:.9rem;cursor:pointer;border:none;transition:all .15s}
+.btn-primary{background:var(--gradient);color:#fff}.btn-primary:hover{opacity:.9}
+.btn-sm{padding:.35rem .75rem;font-size:.8rem;border-radius:6px}
+.btn-outline{border:1px solid var(--border);color:var(--text);background:transparent}.btn-outline:hover{border-color:var(--accent)}
+.btn-danger{background:rgba(248,113,113,.15);color:var(--red);border:1px solid rgba(248,113,113,.2)}.btn-danger:hover{background:rgba(248,113,113,.25)}
+
+/* Cards */
+.page-title{font-size:1.5rem;font-weight:700;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1.5rem;margin-bottom:1rem}
+.card h3{font-size:1rem;margin-bottom:1rem;color:var(--muted);font-weight:500}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem}
+.stat-box{background:var(--surface2);border-radius:10px;padding:1rem}
+.stat-box .val{font-size:1.5rem;font-weight:700}
+.stat-box .lbl{font-size:.8rem;color:var(--muted);margin-top:.25rem}
+.stat-box.accent .val{color:var(--accent2)}
+.stat-box.green .val{color:var(--green)}
+
+/* Table */
+table{width:100%;border-collapse:collapse;font-size:.85rem}
+th{text-align:left;padding:.6rem .75rem;color:var(--muted);font-weight:500;border-bottom:1px solid var(--border);font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+td{padding:.65rem .75rem;border-bottom:1px solid var(--border)}
+tr:hover td{background:var(--surface2)}
+.badge{display:inline-block;padding:.15rem .5rem;border-radius:6px;font-size:.75rem;font-weight:600}
+.badge-scored{background:rgba(74,222,128,.12);color:var(--green)}
+.badge-submitted{background:rgba(124,92,252,.12);color:var(--accent)}
+.badge-pending{background:rgba(251,191,36,.12);color:var(--yellow)}
+.badge-timeout{background:rgba(248,113,113,.12);color:var(--red)}
+.badge-active{background:rgba(74,222,128,.12);color:var(--green)}
+.badge-idle{background:rgba(124,92,252,.12);color:var(--accent)}
+.badge-answering{background:rgba(92,224,216,.12);color:var(--accent2)}
+.badge-suspended{background:rgba(248,113,113,.12);color:var(--red)}
+.empty{text-align:center;color:var(--muted);padding:3rem 1rem}
+.truncate{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* Filters */
+.filters{display:flex;gap:.75rem;margin-bottom:1rem;align-items:center;flex-wrap:wrap}
+.filters select,.filters input{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:.35rem .6rem;color:var(--text);font-size:.85rem}
+.filters select:focus,.filters input:focus{outline:none;border-color:var(--accent)}
+
+/* Pagination */
+.pagination{display:flex;justify-content:center;gap:.5rem;margin-top:1rem}
+.pagination button{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:.3rem .7rem;border-radius:6px;cursor:pointer;font-size:.85rem}
+.pagination button:hover{border-color:var(--accent)}
+.pagination button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:2rem;max-width:700px;width:90%;max-height:80vh;overflow-y:auto}
+.modal h3{margin-bottom:1rem;font-size:1.15rem}
+.modal pre{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:1rem;font-size:.8rem;overflow-x:auto;white-space:pre-wrap;word-break:break-all}
+.modal .close{float:right;cursor:pointer;color:var(--muted);font-size:1.5rem;line-height:1;background:none;border:none}
+.modal .close:hover{color:var(--text)}
+
+/* Toast */
+.toast{position:fixed;bottom:2rem;right:2rem;background:var(--surface);border:1px solid var(--border);padding:.75rem 1.25rem;border-radius:10px;font-size:.9rem;z-index:300;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+.toast.error{border-color:var(--red);color:var(--red)}
+
+/* Loading */
+.loading{display:flex;align-items:center;gap:.5rem;color:var(--muted);padding:2rem;justify-content:center}
+.spinner{width:18px;height:18px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* Responsive */
+@media(max-width:768px){
+  .sidebar{display:none}
+  .main{margin-left:0}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="sidebar">
+    <div class="logo"><a href="/">Benchmark Subnet</a></div>
+    <div class="nav-section">Public</div>
+    <div class="nav-item active" data-page="leaderboard">Leaderboard</div>
+    <div class="nav-item" data-page="pub-questions">Questions</div>
+    <div class="nav-item" data-page="pub-invitations">Invitations</div>
+    <div class="nav-item" data-page="claims">Claims</div>
+    <div class="nav-section">My Mining <span id="wallet-badge" style="font-size:.65rem;color:var(--red)">not connected</span></div>
+    <div class="nav-item" data-page="status">Status</div>
+    <div class="nav-item" data-page="questions">My Questions</div>
+    <div class="nav-item" data-page="invitations">My Invitations</div>
+    <div class="nav-item" data-page="epochs">Epochs</div>
+    <div class="sidebar-footer">
+      <div class="wallet-info" id="sidebar-wallet">
+        <button class="btn btn-primary btn-sm" onclick="connectWallet()">Connect Wallet</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main" id="main-content">
+    <div id="pages">
+      <div id="page-leaderboard"></div>
+      <div id="page-pub-questions" style="display:none"></div>
+      <div id="page-pub-invitations" style="display:none"></div>
+      <div id="page-claims" style="display:none"></div>
+      <div id="page-status" style="display:none"></div>
+      <div id="page-questions" style="display:none"></div>
+      <div id="page-invitations" style="display:none"></div>
+      <div id="page-epochs" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const API = location.origin;
+let provider, signer, address;
+let currentPage = 'leaderboard';
+let refreshInterval = null;
+const PRIVATE_PAGES = new Set(['status','questions','invitations','epochs']);
+
+// --- Wallet ---
+async function connectWallet() {
+  if (!window.ethereum) { toast('Install MetaMask or an EIP-1193 wallet', true); return; }
+  try {
+    provider = new ethers.BrowserProvider(window.ethereum);
+    signer = await provider.getSigner();
+    address = (await signer.getAddress()).toLowerCase();
+    document.getElementById('wallet-badge').textContent = address.slice(0,6)+'...'+address.slice(-4);
+    document.getElementById('wallet-badge').style.color = 'var(--green)';
+    document.getElementById('sidebar-wallet').innerHTML =
+      `<div class="wallet-addr">${address.slice(0,6)}...${address.slice(-4)}</div>
+       <button class="btn btn-danger btn-sm" style="margin-top:.5rem" onclick="disconnect()">Disconnect</button>`;
+    // Refresh current page if it's private
+    if (PRIVATE_PAGES.has(currentPage)) showPage(currentPage);
+  } catch(e) { toast(e.message, true); }
+}
+
+function disconnect() {
+  provider = signer = address = null;
+  document.getElementById('wallet-badge').textContent = 'not connected';
+  document.getElementById('wallet-badge').style.color = 'var(--red)';
+  document.getElementById('sidebar-wallet').innerHTML =
+    '<button class="btn btn-primary btn-sm" onclick="connectWallet()">Connect Wallet</button>';
+  if (PRIVATE_PAGES.has(currentPage)) showPage('leaderboard');
+}
+
+function requireWallet(el) {
+  if (!address) {
+    el.innerHTML = `<div class="empty"><p>Connect your wallet to view this page.</p><button class="btn btn-primary" onclick="connectWallet()">Connect Wallet</button></div>`;
+    return false;
+  }
+  return true;
+}
+
+// --- Signed API ---
+async function signedFetch(method, path, body) {
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const bodyStr = body ? JSON.stringify(body) : '';
+  const bodyBytes = new TextEncoder().encode(bodyStr);
+  const hashBuf = await crypto.subtle.digest('SHA-256', bodyBytes);
+  const bodyHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2,'0')).join('');
+  const message = method + path + ts + bodyHash;
+  const signature = await signer.signMessage(message);
+  const opts = { method, headers: { 'X-Miner-Address': address, 'X-Signature': signature, 'X-Timestamp': ts } };
+  if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = bodyStr; }
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
+
+// --- Navigation ---
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', () => showPage(item.dataset.page));
+});
+
+function showPage(page) {
+  currentPage = page;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.page === page));
+  document.querySelectorAll('[id^="page-"]').forEach(p => p.style.display = 'none');
+  document.getElementById('page-' + page).style.display = '';
+  const loaders = {
+    leaderboard: loadLeaderboard, 'pub-questions': loadPubQuestions, 'pub-invitations': loadPubInvitations,
+    claims: loadClaims, status: loadStatus, questions: loadQuestions, invitations: loadInvitations, epochs: loadEpochs
+  };
+  loaders[page]?.();
+  // Auto-refresh every 30s
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(() => { if (loaders[currentPage]) loaders[currentPage](); }, 30000);
+}
+
+// --- Public Questions Page ---
+async function loadPubQuestions() {
+  const el = document.getElementById('page-pub-questions');
+  el.innerHTML = `
+    <div class="page-title">Scored Questions</div>
+    <div class="filters">
+      <input id="pq-miner" placeholder="Filter by miner address" style="width:300px" value="">
+      <button class="btn btn-outline btn-sm" onclick="loadPubQuestions()">Search</button>
+    </div>
+    <div id="pq-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  `;
+  try {
+    const miner = (document.getElementById('pq-miner')?.value || '').trim().toLowerCase();
+    let url = `${API}/api/v1/questions?limit=50`;
+    if (miner) url += `&miner=${miner}`;
+    const r = await fetch(url).then(r => r.json());
+    const tbody = document.getElementById('pq-table');
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No scored questions yet.</p>'; return; }
+    tbody.innerHTML = `<table>
+      <tr><th>ID</th><th>Set</th><th>Question</th><th>Answer</th><th>Score</th><th>Pass Rate</th></tr>
+      ${items.map(q => `<tr>
+        <td>${q.question_id}</td>
+        <td>${esc(q.bs_id)}</td>
+        <td class="truncate">${esc(q.question)}</td>
+        <td>${esc(q.answer||'')}</td>
+        <td style="color:var(--accent2);font-weight:600">${q.score}</td>
+        <td>${(q.pass_rate*100).toFixed(0)}%</td>
+      </tr>`).join('')}
+    </table>`;
+  } catch(e) { document.getElementById('pq-table').innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+// --- Public Invitations Page ---
+async function loadPubInvitations() {
+  const el = document.getElementById('page-pub-invitations');
+  el.innerHTML = `
+    <div class="page-title">Scored Invitations</div>
+    <div class="filters">
+      <input id="pi-qid" type="number" placeholder="Question ID" style="width:140px">
+      <input id="pi-miner" placeholder="Miner address" style="width:260px">
+      <button class="btn btn-outline btn-sm" onclick="loadPubInvitations()">Search</button>
+    </div>
+    <div id="pi-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  `;
+  try {
+    const qid = (document.getElementById('pi-qid')?.value || '').trim();
+    const miner = (document.getElementById('pi-miner')?.value || '').trim().toLowerCase();
+    let url = `${API}/api/v1/invitations?limit=50`;
+    if (qid) url += `&question_id=${qid}`;
+    if (miner) url += `&miner=${miner}`;
+    const r = await fetch(url).then(r => r.json());
+    const tbody = document.getElementById('pi-table');
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No scored invitations found.</p>'; return; }
+    tbody.innerHTML = `<table>
+      <tr><th>Q#</th><th>Miner</th><th>Judgment</th><th>Answer</th><th>Score</th></tr>
+      ${items.map(inv => `<tr>
+        <td>${inv.question_id}</td>
+        <td><code style="font-size:.8rem">${esc((inv.invitee||'').slice(0,6)+'...'+inv.invitee.slice(-4))}</code></td>
+        <td>${inv.reply_valid != null ? (inv.reply_valid ? 'Valid' : 'Invalid') : '—'}</td>
+        <td>${esc(inv.reply_answer||'—')}</td>
+        <td style="color:var(--accent2);font-weight:600">${inv.score}</td>
+      </tr>`).join('')}
+    </table>`;
+  } catch(e) { document.getElementById('pi-table').innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+// --- Status Page (requires wallet) ---
+async function loadStatus() {
+  const el = document.getElementById('page-status');
+  if (!requireWallet(el)) return;
+  el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading status...</div>';
+  try {
+    const statusRes = await signedFetch('GET', '/api/v1/my/status');
+    if (!statusRes.ok) { el.innerHTML = `<div class="card"><p style="color:var(--red)">${esc(statusRes.error)}</p></div>`; return; }
+    const s = statusRes.data;
+    el.innerHTML = `
+      <div class="page-title">My Mining Status</div>
+      <div class="card">
+        <div class="stat-grid">
+          <div class="stat-box"><div class="val">${statusBadge(s.status)}</div><div class="lbl">Status</div></div>
+          <div class="stat-box accent"><div class="val">${s.total_questions}</div><div class="lbl">Questions</div></div>
+          <div class="stat-box accent"><div class="val">${s.total_invitations}</div><div class="lbl">Invitations</div></div>
+          <div class="stat-box green"><div class="val">${s.total_reward}</div><div class="lbl">Total Reward</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="stat-grid">
+          <div class="stat-box"><div class="val">${s.scored_questions}</div><div class="lbl">Scored Qs</div></div>
+          <div class="stat-box"><div class="val">${s.scored_invitations}</div><div class="lbl">Scored Invs</div></div>
+          <div class="stat-box"><div class="val">${s.epoch_violations}</div><div class="lbl">Violations</div></div>
+          <div class="stat-box"><div class="val" style="font-size:1rem">${s.last_poll_at ? fmtDate(s.last_poll_at) : '—'}</div><div class="lbl">Last Poll</div></div>
+        </div>
+      </div>
+      ${s.unsuspend_at ? `<div class="card" style="border-color:var(--red)"><h3 style="color:var(--red)">Suspended</h3><p>Until: ${new Date(s.unsuspend_at).toLocaleString()}</p></div>` : ''}
+    `;
+  } catch(e) { el.innerHTML = `<div class="card"><p style="color:var(--red)">${esc(e.message)}</p></div>`; }
+}
+
+function statusBadge(s) {
+  return `<span class="badge badge-${s||'idle'}">${s||'unknown'}</span>`;
+}
+
+// --- Questions Page ---
+async function loadQuestions(params) {
+  const el = document.getElementById('page-questions');
+  if (!requireWallet(el)) return;
+  const qs = params || new URLSearchParams();
+  el.innerHTML = `
+    <div class="page-title">My Questions</div>
+    <div class="filters">
+      <select id="q-status" onchange="filterQuestions()">
+        <option value="">All Status</option>
+        <option value="submitted" ${qs.get('status')==='submitted'?'selected':''}>Submitted</option>
+        <option value="scored" ${qs.get('status')==='scored'?'selected':''}>Scored</option>
+      </select>
+      <input type="date" id="q-from" value="${qs.get('from')||''}" onchange="filterQuestions()" placeholder="From">
+      <input type="date" id="q-to" value="${qs.get('to')||''}" onchange="filterQuestions()" placeholder="To">
+    </div>
+    <div id="q-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  `;
+  try {
+    let path = '/api/v1/my/questions';
+    if (qs.toString()) path += '?' + qs.toString();
+    const r = await signedFetch('GET', path);
+    const tbody = document.getElementById('q-table');
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No questions found.</p>'; return; }
+    tbody.innerHTML = `<table>
+      <tr><th>ID</th><th>Set</th><th>Question</th><th>Score</th><th>Status</th><th>Created</th></tr>
+      ${items.map(q => `<tr style="cursor:pointer" onclick="showQuestion(${q.question_id})">
+        <td>${q.question_id}</td>
+        <td>${esc(q.bs_id||'')}</td>
+        <td class="truncate">${esc(q.question||'')}</td>
+        <td>${q.score != null ? q.score : '—'}</td>
+        <td>${statusTag(q.status)}</td>
+        <td>${fmtDate(q.created_at)}</td>
+      </tr>`).join('')}
+    </table>`;
+  } catch(e) { document.getElementById('q-table').innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+function filterQuestions() {
+  const p = new URLSearchParams();
+  const s = document.getElementById('q-status').value; if(s) p.set('status', s);
+  const f = document.getElementById('q-from').value; if(f) p.set('from', f);
+  const t = document.getElementById('q-to').value; if(t) p.set('to', t);
+  loadQuestions(p);
+}
+
+async function showQuestion(id) {
+  try {
+    const r = await signedFetch('GET', `/api/v1/my/questions/${id}`);
+    if (!r.ok) { toast(r.error, true); return; }
+    const q = r.data;
+    openModal(`
+      <button class="close" onclick="closeModal()">&times;</button>
+      <h3>Question #${q.question_id}</h3>
+      <div style="margin-bottom:1rem">
+        <span class="badge" style="margin-right:.5rem">${esc(q.bs_id||'')}</span>
+        ${statusTag(q.status)}
+        ${q.score != null ? `<span style="margin-left:.5rem;color:var(--accent2);font-weight:600">Score: ${q.score}</span>` : ''}
+      </div>
+      <h4 style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Question</h4>
+      <pre>${esc(q.question||'')}</pre>
+      <h4 style="font-size:.85rem;color:var(--muted);margin:.75rem 0 .5rem">Your Answer</h4>
+      <pre>${esc(q.answer||'')}</pre>
+      ${q.pass_rate != null ? `<p style="margin-top:.75rem;font-size:.9rem">Pass Rate: <strong>${(q.pass_rate*100).toFixed(1)}%</strong> &nbsp; Share: <strong>${q.share != null ? q.share.toFixed(4) : '—'}</strong></p>` : ''}
+      <p style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">Created: ${fmtDate(q.created_at)}${q.scored_at ? ' &nbsp; Scored: '+fmtDate(q.scored_at) : ''}</p>
+    `);
+  } catch(e) { toast(e.message, true); }
+}
+
+// --- Invitations Page ---
+async function loadInvitations(params) {
+  const el = document.getElementById('page-invitations');
+  if (!requireWallet(el)) return;
+  const qs = params || new URLSearchParams();
+  el.innerHTML = `
+    <div class="page-title">My Invitations</div>
+    <div class="filters">
+      <select id="i-status" onchange="filterInvitations()">
+        <option value="">All Status</option>
+        <option value="pending" ${qs.get('status')==='pending'?'selected':''}>Pending</option>
+        <option value="replied" ${qs.get('status')==='replied'?'selected':''}>Replied</option>
+        <option value="scored" ${qs.get('status')==='scored'?'selected':''}>Scored</option>
+        <option value="timeout" ${qs.get('status')==='timeout'?'selected':''}>Timeout</option>
+      </select>
+      <input type="date" id="i-from" value="${qs.get('from')||''}" onchange="filterInvitations()">
+      <input type="date" id="i-to" value="${qs.get('to')||''}" onchange="filterInvitations()">
+    </div>
+    <div id="i-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  `;
+  try {
+    let path = '/api/v1/my/invitations';
+    if (qs.toString()) path += '?' + qs.toString();
+    const r = await signedFetch('GET', path);
+    const tbody = document.getElementById('i-table');
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No invitations found.</p>'; return; }
+    tbody.innerHTML = `<table>
+      <tr><th>ID</th><th>Question</th><th>Valid</th><th>Score</th><th>Status</th><th>Created</th></tr>
+      ${items.map(inv => `<tr style="cursor:pointer" onclick="showInvitation(${inv.invitation_id})">
+        <td>${inv.invitation_id}</td>
+        <td class="truncate">${esc(inv.question||inv.question_id?.toString()||'')}</td>
+        <td>${inv.reply_valid != null ? (inv.reply_valid ? '&#10003;' : '&#10007;') : '—'}</td>
+        <td>${inv.score != null ? inv.score : '—'}</td>
+        <td>${statusTag(inv.status)}</td>
+        <td>${fmtDate(inv.created_at)}</td>
+      </tr>`).join('')}
+    </table>`;
+  } catch(e) { document.getElementById('i-table').innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+function filterInvitations() {
+  const p = new URLSearchParams();
+  const s = document.getElementById('i-status').value; if(s) p.set('status', s);
+  const f = document.getElementById('i-from').value; if(f) p.set('from', f);
+  const t = document.getElementById('i-to').value; if(t) p.set('to', t);
+  loadInvitations(p);
+}
+
+async function showInvitation(id) {
+  try {
+    const r = await signedFetch('GET', `/api/v1/my/invitations/${id}`);
+    if (!r.ok) { toast(r.error, true); return; }
+    const inv = r.data;
+    openModal(`
+      <button class="close" onclick="closeModal()">&times;</button>
+      <h3>Invitation #${inv.invitation_id}</h3>
+      <div style="margin-bottom:1rem">
+        ${statusTag(inv.status)}
+        ${inv.score != null ? `<span style="margin-left:.5rem;color:var(--accent2);font-weight:600">Score: ${inv.score}</span>` : ''}
+      </div>
+      <h4 style="font-size:.85rem;color:var(--muted);margin-bottom:.5rem">Question #${inv.question_id}</h4>
+      <pre>${esc(inv.question||'')}</pre>
+      ${inv.reply_answer != null ? `
+        <h4 style="font-size:.85rem;color:var(--muted);margin:.75rem 0 .5rem">Your Answer</h4>
+        <pre>${esc(inv.reply_answer||'')}</pre>
+        <p style="font-size:.9rem">Judged valid: <strong>${inv.reply_valid ? 'Yes' : 'No'}</strong></p>
+      ` : '<p style="margin-top:.75rem;color:var(--muted)">No reply submitted.</p>'}
+      <p style="margin-top:.5rem;font-size:.8rem;color:var(--muted)">Created: ${fmtDate(inv.created_at)}${inv.replied_at ? ' &nbsp; Replied: '+fmtDate(inv.replied_at) : ''}</p>
+    `);
+  } catch(e) { toast(e.message, true); }
+}
+
+// --- Epochs Page (recipient-centric) ---
+async function loadEpochs() {
+  const el = document.getElementById('page-epochs');
+  if (!requireWallet(el)) return;
+  el.innerHTML = `
+    <div class="page-title">Epoch Rewards <span style="font-size:.8rem;color:var(--muted);font-weight:400;margin-left:.5rem">(as reward recipient)</span></div>
+    <div id="e-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  `;
+  try {
+    // Public API: shows all miner rewards where this address is the recipient
+    const r = await fetch(`${API}/api/v1/rewards/${address}`).then(r => r.json());
+    const tbody = document.getElementById('e-table');
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No rewards yet. Rewards appear after epoch settlement.</p>'; return; }
+
+    // Group by epoch for summary
+    const byEpoch = {};
+    for (const rw of items) {
+      if (!byEpoch[rw.epoch_date]) byEpoch[rw.epoch_date] = { miners: [], total: 0 };
+      byEpoch[rw.epoch_date].miners.push(rw);
+      byEpoch[rw.epoch_date].total += rw.final_reward;
+    }
+    const epochs = Object.entries(byEpoch).sort((a, b) => b[0].localeCompare(a[0]));
+    const multiMiner = items.some(rw => rw.miner_address !== address);
+
+    tbody.innerHTML = epochs.map(([date, ep]) => `
+      <div class="card" style="margin-bottom:.75rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem">
+          <strong>${date}</strong>
+          <span style="color:var(--green);font-weight:600">${ep.total}</span>
+        </div>
+        <table>
+          <tr>${multiMiner ? '<th>Miner</th>' : ''}<th>Questions</th><th>Answers</th><th>Composite</th><th>Reward</th></tr>
+          ${ep.miners.map(m => `<tr>
+            ${multiMiner ? `<td><code style="font-size:.8rem">${esc(m.miner_address.slice(0,6)+'...'+m.miner_address.slice(-4))}</code></td>` : ''}
+            <td>${m.scored_asks}</td>
+            <td>${m.scored_answers}</td>
+            <td>${m.composite_score.toFixed(4)}</td>
+            <td style="color:var(--green);font-weight:600">${m.final_reward}</td>
+          </tr>`).join('')}
+        </table>
+      </div>
+    `).join('');
+  } catch(e) { document.getElementById('e-table').innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+// --- Claims Page (public, with optional claim button) ---
+async function loadClaims() {
+  const el = document.getElementById('page-claims');
+  const lookupAddr = address || '';
+  el.innerHTML = `
+    <div class="page-title">Claim Rewards</div>
+    <div class="filters">
+      <input id="claims-addr" placeholder="Recipient address" style="width:360px" value="${esc(lookupAddr)}">
+      <button class="btn btn-outline btn-sm" onclick="searchClaims()">Search</button>
+    </div>
+    <div id="c-table">${lookupAddr ? '<div class="loading"><div class="spinner"></div>Loading...</div>' : '<p class="empty">Enter a recipient address to view claims.</p>'}</div>
+  `;
+  if (lookupAddr) searchClaims();
+}
+
+async function searchClaims() {
+  const addr = (document.getElementById('claims-addr')?.value || '').trim().toLowerCase();
+  const tbody = document.getElementById('c-table');
+  if (!addr) { tbody.innerHTML = '<p class="empty">Enter a recipient address.</p>'; return; }
+  tbody.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+  try {
+    const r = await fetch(`${API}/api/v1/claims/${addr}`).then(r => r.json());
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No claim proofs for this address.</p>'; return; }
+    const canClaim = address && signer; // Can send tx if wallet connected
+    tbody.innerHTML = `<table>
+      <tr><th>Epoch</th><th>Amount</th><th>Claimed</th><th>Actions</th></tr>
+      ${items.map(c => `<tr>
+        <td>${fmtDate(c.epoch_date)}</td>
+        <td style="color:var(--green);font-weight:600">${c.amount}</td>
+        <td>${c.claimed ? '<span style="color:var(--green)">Yes</span>' : '<span style="color:var(--muted)">No</span>'}</td>
+        <td>
+          <button class="btn btn-outline btn-sm" onclick="showProof(${JSON.stringify(JSON.stringify(c)).replace(/"/g,'&quot;')})">Proof</button>
+          ${canClaim && !c.claimed ? `<button class="btn btn-primary btn-sm" style="margin-left:.25rem" onclick="executeClaim(${JSON.stringify(JSON.stringify(c)).replace(/"/g,'&quot;')})">Claim</button>` : ''}
+        </td>
+      </tr>`).join('')}
+    </table>`;
+  } catch(e) { tbody.innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+function showProof(jsonStr) {
+  const c = JSON.parse(jsonStr);
+  openModal(`
+    <button class="close" onclick="closeModal()">&times;</button>
+    <h3>Merkle Proof — ${fmtDate(c.epoch_date)}</h3>
+    <p style="margin-bottom:1rem;font-size:.9rem">Amount: <strong style="color:var(--green)">${c.amount}</strong></p>
+    <pre>${JSON.stringify(c, null, 2)}</pre>
+  `);
+}
+
+async function executeClaim(jsonStr) {
+  const c = JSON.parse(jsonStr);
+  if (!signer) { toast('Connect wallet first', true); return; }
+  // Parse epoch date to uint32 YYYYMMDD
+  const parts = c.epoch_date.split('-');
+  const epoch = parseInt(parts[0]) * 10000 + parseInt(parts[1]) * 100 + parseInt(parts[2]);
+  const amount = c.amount;
+  const proof = c.proof;
+
+  // SubnetManager.claim(uint32 epoch, uint256 amount, bytes32[] proof)
+  const abi = ['function claim(uint32 epoch, uint256 amount, bytes32[] calldata merkleProof)'];
+  try {
+    // Get contract address from config API
+    const cfgRes = await fetch(`${API}/admin/v1/config`).catch(() => null);
+    let contractAddr = '';
+    if (cfgRes && cfgRes.ok) {
+      const cfgs = (await cfgRes.json()).data || [];
+      const entry = cfgs.find(c => c.key === 'network.contract_address');
+      if (entry) contractAddr = entry.value;
+    }
+    if (!contractAddr) { toast('Contract address not configured', true); return; }
+
+    const contract = new ethers.Contract(contractAddr, abi, signer);
+    toast('Sending claim transaction...');
+    const tx = await contract.claim(epoch, amount, proof);
+    toast('Transaction sent: ' + tx.hash.slice(0, 10) + '...');
+    await tx.wait();
+    toast('Claim successful!');
+    searchClaims(); // Refresh
+  } catch(e) { toast(e.reason || e.message, true); }
+}
+
+// --- Leaderboard Page ---
+async function loadLeaderboard() {
+  const el = document.getElementById('page-leaderboard');
+  el.innerHTML = `
+    <div class="page-title">Leaderboard</div>
+    <div id="lb-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+  `;
+  try {
+    const r = await fetch(`${API}/api/v1/leaderboard?limit=50`).then(r => r.json());
+    const tbody = document.getElementById('lb-table');
+    if (!r.ok) { tbody.innerHTML = `<p style="color:var(--red)">${esc(r.error)}</p>`; return; }
+    const items = r.data || [];
+    if (!items.length) { tbody.innerHTML = '<p class="empty">No miners yet.</p>'; return; }
+    tbody.innerHTML = `<table>
+      <tr><th>#</th><th>Miner</th><th>Questions</th><th>Answers</th><th>Avg Score</th><th>Total Reward</th></tr>
+      ${items.map((m, i) => `<tr${m.address === address ? ' style="background:rgba(124,92,252,.08)"' : ''}>
+        <td style="font-weight:600;color:var(--accent2)">${i + 1}</td>
+        <td><code style="font-size:.8rem">${esc(m.address.slice(0,6)+'...'+m.address.slice(-4))}</code>${m.address === address ? ' <span class="badge badge-active">You</span>' : ''}</td>
+        <td>${m.question_count}</td>
+        <td>${m.answer_count}</td>
+        <td>${m.avg_score.toFixed(2)}</td>
+        <td style="color:var(--green);font-weight:600">${parseFloat(m.total_reward).toFixed(4)}</td>
+      </tr>`).join('')}
+    </table>`;
+  } catch(e) { document.getElementById('lb-table').innerHTML = `<p style="color:var(--red)">${esc(e.message)}</p>`; }
+}
+
+// --- Utils ---
+function esc(s) { const d = document.createElement('div'); d.textContent = s||''; return d.innerHTML; }
+function fmtDate(s) { if (!s) return '—'; const d = new Date(s); return d.toLocaleDateString('en-CA'); }
+function statusTag(s) {
+  const cls = {scored:'scored',submitted:'submitted',pending:'pending',timeout:'timeout',replied:'submitted',active:'active',idle:'idle',answering:'answering',suspended:'suspended'};
+  return `<span class="badge badge-${cls[s]||'pending'}">${s||'unknown'}</span>`;
+}
+function openModal(html) { document.getElementById('modal').innerHTML = html; document.getElementById('modal-overlay').classList.add('show'); }
+function closeModal() { document.getElementById('modal-overlay').classList.remove('show'); }
+function toast(msg, isErr) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (isErr ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 3000);
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+// Init — start on public leaderboard page (no wallet needed)
+showPage('leaderboard');
+</script>
+</body>
+</html>
