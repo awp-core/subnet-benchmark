@@ -128,7 +128,7 @@ func run() error {
 	scoresHandler := &handler.WorkerScoresHandler{Store: s}
 	claimsHandler := &handler.ClaimsHandler{Store: s}
 	adminHandler := &handler.AdminHandler{Store: s, Settlement: settlementSvc, Onchain: onchainSvc, RtConfig: rtConfig}
-	publicHandler := &handler.PublicHandler{Store: s}
+	publicHandler := &handler.PublicHandler{Store: s, RtConfig: rtConfig}
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, s, rootNet, rtConfig, bsHandler, qHandler, pollHandler, ansHandler, scoresHandler, claimsHandler, adminHandler, publicHandler, adminToken)
@@ -233,6 +233,7 @@ func registerRoutes(mux *http.ServeMux, s *store.Store,
 	mux.HandleFunc("GET /api/v1/assignments", pub.HandlePublicAssignments)
 	mux.HandleFunc("GET /api/v1/epochs", pub.HandlePublicEpochs)
 	mux.HandleFunc("GET /api/v1/rewards/{address}", pub.HandleRecipientRewards)
+	mux.HandleFunc("GET /api/v1/workers/{address}/today", pub.HandleWorkerToday)
 
 	// Miner API (full auth)
 	fullAuth := handler.WorkerAuth(handler.WorkerAuthConfig{

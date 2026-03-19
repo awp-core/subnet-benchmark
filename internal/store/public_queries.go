@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"time"
 )
 
 // ProtocolStats holds aggregate stats for the landing page.
@@ -42,6 +44,11 @@ func (s *Store) GetLeaderboard(ctx context.Context, limit int) ([]LeaderboardEnt
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
+	// Today's UTC date range
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	todayEnd := todayStart.Add(24 * time.Hour)
+
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			m.address,
@@ -57,20 +64,25 @@ func (s *Store) GetLeaderboard(ctx context.Context, limit int) ([]LeaderboardEnt
 		LEFT JOIN (
 			SELECT questioner, count(*) AS cnt, avg(score) AS avg_score
 			FROM questions WHERE status = 'scored'
+			AND scored_at >= $2 AND scored_at < $3
 			GROUP BY questioner
 		) q ON q.questioner = m.address
 		LEFT JOIN (
-			SELECT worker, count(*) AS cnt, avg(score) AS avg_score
-			FROM assignments WHERE status = 'scored'
-			GROUP BY worker
+			SELECT a.worker, count(*) AS cnt, avg(a.score) AS avg_score
+			FROM assignments a
+			JOIN questions q2 ON q2.question_id = a.question_id
+			WHERE a.status = 'scored'
+			AND q2.scored_at >= $2 AND q2.scored_at < $3
+			GROUP BY a.worker
 		) a ON a.worker = m.address
 		LEFT JOIN (
 			SELECT worker_address, sum(final_reward) AS total
 			FROM worker_epoch_rewards
 			GROUP BY worker_address
 		) r ON r.worker_address = m.address
+		WHERE COALESCE(q.cnt, 0) + COALESCE(a.cnt, 0) > 0
 		ORDER BY total_reward DESC, avg_score DESC
-		LIMIT $1`, limit)
+		LIMIT $1`, limit, todayStart, todayEnd)
 	if err != nil {
 		return nil, fmt.Errorf("get leaderboard: %w", err)
 	}
@@ -224,4 +236,105 @@ func (s *Store) ListPublicAssignments(ctx context.Context, f PublicAssignmentFil
 		result = append(result, a)
 	}
 	return result, rows.Err()
+}
+
+// WorkerTodayStats holds a single worker's stats for today's epoch (UTC).
+type WorkerTodayStats struct {
+	Address           string  `json:"address"`
+	QuestionsAsked    int     `json:"questions_asked"`
+	AvgAskScore       float64 `json:"avg_ask_score"`
+	QuestionsAnswered int     `json:"questions_answered"`
+	TimedOut          int     `json:"timed_out"`
+	AvgAnswerScore    float64 `json:"avg_answer_score"`
+	CompositeScore    float64 `json:"composite_score"`
+	RawReward         int64   `json:"raw_reward"`
+	EstimatedReward   int64   `json:"estimated_reward"`
+}
+
+// GetWorkerTodayStats returns a worker's performance stats for today's UTC epoch.
+func (s *Store) GetWorkerTodayStats(ctx context.Context, address string, totalReward int64, minTasks int) (*WorkerTodayStats, error) {
+	now := time.Now().UTC()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	todayEnd := todayStart.Add(24 * time.Hour)
+
+	st := &WorkerTodayStats{Address: address}
+
+	// Questions asked (scored today)
+	var askShareSum float64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(count(*), 0), COALESCE(avg(score), 0), COALESCE(sum(share), 0)
+		FROM questions
+		WHERE questioner = $1 AND status = 'scored'
+		AND scored_at >= $2 AND scored_at < $3`,
+		address, todayStart, todayEnd,
+	).Scan(&st.QuestionsAsked, &st.AvgAskScore, &askShareSum)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("query ask stats: %w", err)
+	}
+
+	// Total scored questions today (for reward pool calculation)
+	var totalQuestionsToday int
+	err = s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(count(*), 0) FROM questions
+		WHERE status = 'scored' AND scored_at >= $1 AND scored_at < $2`,
+		todayStart, todayEnd,
+	).Scan(&totalQuestionsToday)
+	if err != nil {
+		return nil, fmt.Errorf("count today questions: %w", err)
+	}
+
+	// Answers (scored today via question's scored_at)
+	var ansShareSum float64
+	err = s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(count(*) FILTER (WHERE a.status = 'scored'), 0),
+			COALESCE(count(*) FILTER (WHERE a.status = 'timed-out'), 0),
+			COALESCE(avg(a.score) FILTER (WHERE a.status IN ('scored', 'timed-out')), 0),
+			COALESCE(sum(a.share) FILTER (WHERE a.status = 'scored'), 0)
+		FROM assignments a
+		JOIN questions q ON q.question_id = a.question_id
+		WHERE a.worker = $1 AND q.status = 'scored'
+		AND q.scored_at >= $2 AND q.scored_at < $3`,
+		address, todayStart, todayEnd,
+	).Scan(&st.QuestionsAnswered, &st.TimedOut, &st.AvgAnswerScore, &ansShareSum)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("query answer stats: %w", err)
+	}
+
+	// Compute composite score and estimated reward (mirrors settlement logic)
+	hasAsks := st.QuestionsAsked > 0
+	hasAnswers := (st.QuestionsAnswered + st.TimedOut) > 0
+
+	if hasAsks && hasAnswers {
+		st.CompositeScore = (st.AvgAskScore + st.AvgAnswerScore) / 10.0
+	} else if hasAsks {
+		st.CompositeScore = st.AvgAskScore / 10.0
+	} else if hasAnswers {
+		st.CompositeScore = st.AvgAnswerScore / 10.0
+	}
+
+	if totalQuestionsToday > 0 {
+		// Extrapolate total questions for the full day based on elapsed time.
+		elapsed := now.Sub(todayStart).Seconds()
+		if elapsed < 60 {
+			elapsed = 60 // avoid extreme extrapolation in the first minute
+		}
+		dayFraction := elapsed / 86400.0
+		estimatedTotal := int64(float64(totalQuestionsToday) / dayFraction)
+		if estimatedTotal < int64(totalQuestionsToday) {
+			estimatedTotal = int64(totalQuestionsToday)
+		}
+
+		baseReward := totalReward / estimatedTotal
+		askPool := baseReward / 3
+		ansPool := baseReward - askPool
+		st.RawReward = int64(float64(askPool)*askShareSum) + int64(float64(ansPool)*ansShareSum)
+	}
+
+	scoredTasks := st.QuestionsAsked + st.QuestionsAnswered
+	if scoredTasks >= minTasks {
+		st.EstimatedReward = int64(float64(st.RawReward) * st.CompositeScore)
+	}
+
+	return st, nil
 }

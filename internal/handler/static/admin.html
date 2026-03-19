@@ -102,7 +102,7 @@ button.danger:hover { background: #f85149; }
   </div>
   <div class="card">
     <h3>All Workers</h3>
-    <table><thead><tr><th>Address</th><th>Suspended</th><th>Violations</th><th>Last Poll</th><th>Created</th></tr></thead>
+    <table><thead><tr><th>Address</th><th>Status</th><th>Violations</th><th>Last Poll</th><th>Today Asked</th><th>Today Answered</th><th>Composite</th><th>Est. Reward</th></tr></thead>
     <tbody id="workers-table"></tbody></table>
     <div class="pager" id="workers-pager"></div>
   </div>
@@ -218,7 +218,7 @@ async function loadDashboard() {
   const bsData = bs.data || [];
   const wData = workers.data || [];
   const eData = epochs.data || [];
-  const readyCutoff = Date.now() - 60 * 1000;
+  const readyCutoff = Date.now() - 180 * 1000;
   const online = wData.filter(w => w.last_poll_at && new Date(w.last_poll_at).getTime() >= readyCutoff && !w.suspended).length;
   document.getElementById('dashboard-stats').innerHTML = `
     <div class="stat-box"><div class="value">${bsData.length}</div><div class="label">BenchmarkSets</div></div>
@@ -315,27 +315,91 @@ async function saveBS(id) {
   if (r.ok) loadBS();
 }
 
-// Workers (client-side pagination)
+// Workers (client-side pagination + today stats)
 let workersCache = [];
+let workersTodayCache = {};
 let wPage = 0;
 
 async function loadWorkers() {
   const r = await api('GET', '/admin/v1/workers');
   workersCache = r.data || [];
+  // Fetch today stats for all workers in parallel
+  workersTodayCache = {};
+  const fetches = workersCache.map(w =>
+    fetch('/api/v1/workers/' + encodeURIComponent(w.address) + '/today')
+      .then(r => r.json())
+      .then(j => { if (j.ok !== false) workersTodayCache[w.address] = j.data || j; })
+      .catch(() => {})
+  );
+  await Promise.all(fetches);
   wPage = 0;
   renderWorkers();
+}
+
+function workerStatus(w) {
+  if (w.suspended) return '<span class="badge badge-red">suspended</span>';
+  const cutoff = Date.now() - 180 * 1000;
+  if (w.last_poll_at && new Date(w.last_poll_at).getTime() >= cutoff)
+    return '<span class="badge badge-green">online</span>';
+  return '<span class="badge badge-gray">offline</span>';
 }
 
 function renderWorkers() {
   const start = wPage * PAGE_SIZE;
   const page = workersCache.slice(start, start + PAGE_SIZE);
-  const rows = page.map(w => `<tr>
-    <td>${shortAddr(w.address)}</td>
-    <td>${w.suspended ? '<span class="badge badge-red">suspended</span>' : '<span class="badge badge-green">active</span>'}</td>
-    <td>${w.epoch_violations}</td><td>${fmtTime(w.last_poll_at)}</td><td>${fmtTime(w.created_at)}</td>
-  </tr>`).join('');
-  document.getElementById('workers-table').innerHTML = rows || '<tr><td colspan="5">No data</td></tr>';
+  const rows = page.map(w => {
+    const t = workersTodayCache[w.address] || {};
+    const asked = t.questions_asked || 0;
+    const answered = t.questions_answered || 0;
+    const timedOut = t.timed_out || 0;
+    const comp = t.composite_score ? t.composite_score.toFixed(2) : '-';
+    const est = t.estimated_reward ? t.estimated_reward.toLocaleString() : '0';
+    const answeredStr = timedOut > 0 ? `${answered} <span style="color:#f5222d">(+${timedOut} TO)</span>` : `${answered}`;
+    return `<tr style="cursor:pointer" onclick="toggleWorkerDetail(this,'${w.address}')">
+      <td>${shortAddr(w.address)}</td>
+      <td>${workerStatus(w)}</td>
+      <td>${w.epoch_violations}</td>
+      <td>${fmtTime(w.last_poll_at)}</td>
+      <td>${asked}</td>
+      <td>${answeredStr}</td>
+      <td>${comp}</td>
+      <td>${est}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('workers-table').innerHTML = rows || '<tr><td colspan="8">No data</td></tr>';
   renderPager('workers-pager', wPage, workersCache.length, 'goWorkersPage');
+}
+
+async function toggleWorkerDetail(row, addr) {
+  const next = row.nextElementSibling;
+  if (next && next.classList.contains('worker-detail')) { next.remove(); return; }
+  document.querySelectorAll('.worker-detail').forEach(el => el.remove());
+
+  const t = workersTodayCache[addr] || {};
+  const w = workersCache.find(w => w.address === addr) || {};
+  const detail = document.createElement('tr');
+  detail.className = 'worker-detail';
+  detail.innerHTML = `<td colspan="8" style="padding:0">
+    <div style="background:#0d1117;border:1px solid #30363d;border-radius:6px;margin:4px 12px 8px;padding:12px">
+      <div style="font-size:12px;color:#58a6ff;margin-bottom:8px">Worker Detail</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:13px">
+        <div><span style="color:#8b949e">Address</span><br><span class="mono" style="font-size:11px">${addr}</span></div>
+        <div><span style="color:#8b949e">Created</span><br>${fmtTime(w.created_at)}</div>
+        <div><span style="color:#8b949e">Last Poll</span><br>${fmtTime(w.last_poll_at)}</div>
+        <div><span style="color:#8b949e">Suspended Until</span><br>${w.suspended_until ? fmtTime(w.suspended_until) : '-'}</div>
+      </div>
+      <div style="font-size:12px;color:#58a6ff;margin:12px 0 8px">Today's Epoch</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;font-size:13px">
+        <div><span style="color:#8b949e">Asked</span><br>${t.questions_asked||0} (avg ${(t.avg_ask_score||0).toFixed(1)})</div>
+        <div><span style="color:#8b949e">Answered</span><br>${t.questions_answered||0} (avg ${(t.avg_answer_score||0).toFixed(1)})</div>
+        <div><span style="color:#8b949e">Timed Out</span><br>${t.timed_out||0}</div>
+        <div><span style="color:#8b949e">Composite</span><br>${(t.composite_score||0).toFixed(3)}</div>
+        <div><span style="color:#8b949e">Raw Reward</span><br>${(t.raw_reward||0).toLocaleString()}</div>
+        <div><span style="color:#8b949e">Est. Reward</span><br><b style="color:#52c41a">${(t.estimated_reward||0).toLocaleString()}</b></div>
+      </div>
+    </div>
+  </td>`;
+  row.after(detail);
 }
 
 function goWorkersPage(p) {

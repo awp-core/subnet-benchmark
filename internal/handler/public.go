@@ -5,12 +5,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/awp-core/subnet-benchmark/internal/service"
 	"github.com/awp-core/subnet-benchmark/internal/store"
 )
 
 // PublicHandler serves public, unauthenticated protocol data.
 type PublicHandler struct {
-	Store *store.Store
+	Store    *store.Store
+	RtConfig *service.RuntimeConfig
 }
 
 // HandleStats returns aggregate protocol statistics.
@@ -160,4 +162,22 @@ func (h *PublicHandler) HandleRecipientRewards(w http.ResponseWriter, r *http.Re
 		})
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// HandleWorkerToday returns a single worker's stats for today's epoch.
+// GET /api/v1/workers/{address}/today
+func (h *PublicHandler) HandleWorkerToday(w http.ResponseWriter, r *http.Request) {
+	addr := strings.ToLower(r.PathValue("address"))
+	if addr == "" {
+		writeError(w, http.StatusBadRequest, "missing address")
+		return
+	}
+
+	cfg := h.RtConfig.SettlementConfig()
+	stats, err := h.Store.GetWorkerTodayStats(r.Context(), addr, cfg.TotalReward, cfg.MinTasks)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
