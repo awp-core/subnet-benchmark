@@ -26,14 +26,16 @@ func NewRootNetClient(baseURL string) *RootNetClient {
 
 // addressCheckResponse is the response from GET /api/address/{address}/check
 type addressCheckResponse struct {
-	IsRegisteredUser  bool   `json:"isRegisteredUser"`
-	IsRegisteredAgent bool   `json:"isRegisteredAgent"`
-	OwnerAddress      string `json:"ownerAddress"`
-	IsManager         bool   `json:"isManager"`
+	// New format
+	IsRegistered bool   `json:"isRegistered"`
+	BoundTo      string `json:"boundTo"`
+	Recipient    string `json:"recipient"`
+	// Legacy format (kept for backward compatibility)
+	IsRegisteredUser  bool `json:"isRegisteredUser"`
+	IsRegisteredAgent bool `json:"isRegisteredAgent"`
 }
 
-// IsRegistered checks if the given address is registered on the RootNet
-// (either as a user or as an agent).
+// IsRegistered checks if the given address is registered on the RootNet.
 func (c *RootNetClient) IsRegistered(ctx context.Context, address string) (bool, error) {
 	url := fmt.Sprintf("%s/api/address/%s/check", c.BaseURL, address)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -56,7 +58,7 @@ func (c *RootNetClient) IsRegistered(ctx context.Context, address string) (bool,
 		return false, fmt.Errorf("decode response: %w", err)
 	}
 
-	return result.IsRegisteredUser || result.IsRegisteredAgent, nil
+	return result.IsRegistered || result.IsRegisteredUser || result.IsRegisteredAgent, nil
 }
 
 // userResponse is the response from GET /api/users/{address}
