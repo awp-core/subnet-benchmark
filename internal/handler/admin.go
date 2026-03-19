@@ -14,6 +14,7 @@ import (
 type AdminHandler struct {
 	Store      *store.Store
 	Settlement *service.SettlementService
+	Onchain    *service.OnchainService
 	RtConfig   *service.RuntimeConfig
 }
 
@@ -220,6 +221,8 @@ type adminEpochView struct {
 	TotalReward int64   `json:"total_reward"`
 	TotalScored int     `json:"total_scored"`
 	SettledAt   *string `json:"settled_at,omitempty"`
+	MerkleRoot  *string `json:"merkle_root,omitempty"`
+	PublishedAt *string `json:"published_at,omitempty"`
 }
 
 func toAdminEpochView(e model.Epoch) adminEpochView {
@@ -227,10 +230,15 @@ func toAdminEpochView(e model.Epoch) adminEpochView {
 		EpochDate:   e.EpochDate.Format("2006-01-02"),
 		TotalReward: e.TotalReward,
 		TotalScored: e.TotalScored,
+		MerkleRoot:  e.MerkleRoot,
 	}
 	if e.SettledAt != nil {
 		s := e.SettledAt.Format(time.RFC3339)
 		v.SettledAt = &s
+	}
+	if e.PublishedAt != nil {
+		s := e.PublishedAt.Format(time.RFC3339)
+		v.PublishedAt = &s
 	}
 	return v
 }
@@ -299,6 +307,35 @@ func (h *AdminHandler) HandleTriggerSettlement(w http.ResponseWriter, r *http.Re
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"settled": req.EpochDate})
+}
+
+// HandlePublishMerkleRoot handles POST /admin/v1/publish
+func (h *AdminHandler) HandlePublishMerkleRoot(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		EpochDate string `json:"epoch_date"` // YYYY-MM-DD
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	epochDate, err := time.Parse("2006-01-02", req.EpochDate)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid epoch_date, use YYYY-MM-DD")
+		return
+	}
+
+	if h.Onchain == nil {
+		writeError(w, http.StatusServiceUnavailable, "on-chain publishing not configured")
+		return
+	}
+
+	if err := h.Onchain.PublishMerkleRoot(r.Context(), epochDate); err != nil {
+		writeError(w, http.StatusInternalServerError, "publish failed: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"published": req.EpochDate})
 }
 
 // --- Config ---

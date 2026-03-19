@@ -147,7 +147,7 @@ button.danger:hover { background: #f85149; }
   <div class="toolbar"><span class="spacer"></span><button class="secondary" onclick="loadEpochs()">Refresh</button></div>
   <div class="card">
     <h3>Epoch History</h3>
-    <table><thead><tr><th>Date</th><th>Total Reward</th><th>Scored Questions</th><th>Settled At</th></tr></thead>
+    <table><thead><tr><th>Date</th><th>Total Reward</th><th>Scored Questions</th><th>Settled At</th><th>Merkle Root</th><th>Published</th><th>Actions</th></tr></thead>
     <tbody id="epochs-table"></tbody></table>
   </div>
 </div>
@@ -411,11 +411,33 @@ async function toggleAssignments(row, qid) {
 // Epochs
 async function loadEpochs() {
   const r = await api('GET', '/admin/v1/epochs');
-  const rows = (r.data || []).map(e => `<tr>
-    <td>${e.epoch_date}</td><td>${e.total_reward.toLocaleString()}</td>
-    <td>${e.total_scored}</td><td>${fmtTime(e.settled_at)}</td>
-  </tr>`).join('');
-  document.getElementById('epochs-table').innerHTML = rows || '<tr><td colspan="4">No data</td></tr>';
+  const rows = (r.data || []).map(e => {
+    const settled = !!e.settled_at;
+    const hasRoot = !!e.merkle_root;
+    const published = !!e.published_at;
+    let actions = '';
+    if (settled && hasRoot && !published) {
+      actions = `<button class="secondary" onclick="publishEpoch('${e.epoch_date}')">Publish</button>`;
+    }
+    const rootShort = e.merkle_root ? `<span class="mono truncate" title="${e.merkle_root}">${e.merkle_root.slice(0,14)}...</span>` : '-';
+    const pubStatus = published ? `<span class="badge badge-green">Yes</span>` : (hasRoot ? `<span class="badge badge-yellow">No</span>` : '-');
+    return `<tr>
+      <td>${e.epoch_date}</td><td>${e.total_reward.toLocaleString()}</td>
+      <td>${e.total_scored}</td><td>${fmtTime(e.settled_at)}</td>
+      <td>${rootShort}</td><td>${pubStatus}</td><td>${actions}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('epochs-table').innerHTML = rows || '<tr><td colspan="7">No data</td></tr>';
+}
+
+async function publishEpoch(date) {
+  if (!confirm('Publish merkle root for epoch ' + date + '?')) return;
+  const el = document.getElementById('settle-msg');
+  el.className = ''; el.textContent = 'Publishing...';
+  const r = await api('POST', '/admin/v1/publish', {epoch_date: date});
+  el.className = r.ok ? 'msg msg-ok' : 'msg msg-err';
+  el.textContent = r.ok ? 'Published: ' + date : r.error;
+  if (r.ok) loadEpochs();
 }
 
 async function triggerSettle() {

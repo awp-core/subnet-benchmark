@@ -24,7 +24,7 @@ func DefaultQuestionConfig() QuestionConfig {
 		RateLimit:            1 * time.Minute,
 		ReplyTimeout:         3 * time.Minute,
 		SimilarityMinScore:   2,
-		SimilarityMaxJaccard: 0.9,
+		SimilarityMaxJaccard: 0.85,
 	}
 }
 
@@ -87,7 +87,7 @@ func (svc *QuestionService) SubmitQuestion(ctx context.Context, req SubmitQuesti
 
 	// 4. Similarity check
 	newSig := minhash.Generate(req.Question)
-	existingHashes, err := svc.Store.ListQuestionMinHashes(ctx, req.BSID, cfg.SimilarityMinScore)
+	existingHashes, err := svc.Store.ListAllQuestionMinHashes(ctx, req.BSID)
 	if err != nil {
 		return nil, fmt.Errorf("list minhashes: %w", err)
 	}

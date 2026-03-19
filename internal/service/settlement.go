@@ -56,18 +56,31 @@ type minerStats struct {
 }
 
 // Settle performs epoch settlement for the given date (UTC 00:00:00).
+// Idempotent: safe to retry — cleans up previous partial results before re-computing.
 func (svc *SettlementService) Settle(ctx context.Context, epochDate time.Time) error {
 	cfg := svc.cfg()
 
-	// 1. Create epoch record
-	_, err := svc.Store.CreateEpoch(ctx, epochDate, cfg.TotalReward)
+	// 1. Create or reset epoch record (idempotent)
+	_, err := svc.Store.CreateOrResetEpoch(ctx, epochDate, cfg.TotalReward)
 	if err != nil {
 		return fmt.Errorf("create epoch: %w", err)
 	}
 
-	// 2. Query all scored questions for this epoch
+	// 2. Clean up any previous partial settlement data
 	start := epochDate
 	end := epochDate.Add(24 * time.Hour)
+
+	if err := svc.Store.DeleteEpochMerkleProofs(ctx, epochDate); err != nil {
+		return fmt.Errorf("cleanup merkle proofs: %w", err)
+	}
+	if err := svc.Store.DeleteEpochRewards(ctx, epochDate); err != nil {
+		return fmt.Errorf("cleanup rewards: %w", err)
+	}
+	if err := svc.Store.ResetBenchmarkFlags(ctx, start, end); err != nil {
+		return fmt.Errorf("cleanup benchmark flags: %w", err)
+	}
+
+	// 3. Query all scored questions for this epoch
 	questions, err := svc.Store.ListScoredQuestionsInRange(ctx, start, end)
 	if err != nil {
 		return fmt.Errorf("list questions: %w", err)
@@ -254,28 +267,50 @@ func (svc *SettlementService) buildMerkleTree(ctx context.Context, epochDate tim
 		eligible = append(eligible, recipientResult{workerAddr: workerAddr, reward: reward})
 	}
 
-	// Parallel RootNet lookups (up to 10 concurrent)
+	// Parallel RootNet lookups (up to 10 concurrent, retry up to 3 times per address)
+	const maxRetries = 3
 	if !testnet && len(eligible) > 0 {
 		sem := make(chan struct{}, 10)
 		var mu sync.Mutex
 		var wg sync.WaitGroup
+		var firstErr error
 		for i := range eligible {
 			wg.Add(1)
 			go func(idx int) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				r, err := svc.RootNet.GetRewardRecipient(ctx, eligible[idx].workerAddr)
-				if err != nil {
-					log.Printf("warning: RootNet lookup failed for %s, using worker address: %v", eligible[idx].workerAddr, err)
-					r = strings.ToLower(eligible[idx].workerAddr)
+
+				var r string
+				var lastErr error
+				for attempt := 1; attempt <= maxRetries; attempt++ {
+					r, lastErr = svc.RootNet.GetRewardRecipient(ctx, eligible[idx].workerAddr)
+					if lastErr == nil {
+						break
+					}
+					log.Printf("RootNet lookup attempt %d/%d failed for %s: %v",
+						attempt, maxRetries, eligible[idx].workerAddr, lastErr)
+					if attempt < maxRetries {
+						time.Sleep(time.Duration(attempt) * 2 * time.Second)
+					}
 				}
+
 				mu.Lock()
-				eligible[idx].recipient = r
+				if lastErr != nil && firstErr == nil {
+					firstErr = fmt.Errorf("RootNet lookup failed for %s after %d retries: %w",
+						eligible[idx].workerAddr, maxRetries, lastErr)
+				}
+				if lastErr == nil {
+					eligible[idx].recipient = r
+				}
 				mu.Unlock()
 			}(i)
 		}
 		wg.Wait()
+
+		if firstErr != nil {
+			return firstErr
+		}
 	} else {
 		for i := range eligible {
 			eligible[i].recipient = strings.ToLower(eligible[i].workerAddr)

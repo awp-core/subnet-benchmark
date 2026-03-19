@@ -84,6 +84,8 @@ type Epoch struct {
 	TotalReward int64
 	TotalScored int
 	SettledAt   *time.Time
+	MerkleRoot  *string
+	PublishedAt *time.Time
 }
 
 type WorkerEpochReward struct {

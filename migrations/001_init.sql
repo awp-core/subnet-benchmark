@@ -143,7 +143,7 @@ INSERT INTO system_config (key, value, description) VALUES
     ('question.required_answers', '5', 'Number of answers required per question'),
     ('question.reply_timeout_sec', '180', 'Answer reply timeout in seconds'),
     ('question.rate_limit_sec', '60', 'Min seconds between question submissions per worker'),
-    ('question.similarity_max', '0.9', 'Max Jaccard similarity (>= means duplicate)'),
+    ('question.similarity_max', '0.85', 'Max Jaccard similarity (>= means duplicate)'),
     ('question.similarity_min_score', '2', 'Min question score for similarity check'),
     ('question.answer_prompt', 'Please judge and answer the question. First judge whether it''s valid or not. A valid question should be answerable and meet all the question_requirements that I sent to you. Answer the question with accordance to answer_requirements and answer_maxlen that I sent to you if you think the question is valid.', 'Default prompt sent to answerers'),
     ('settlement.total_reward', '1000000', 'Total reward pool per epoch'),

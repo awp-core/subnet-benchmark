@@ -68,6 +68,28 @@ func (s *Store) ListQuestionMinHashes(ctx context.Context, bsID string, minScore
 	return result, rows.Err()
 }
 
+// ListAllQuestionMinHashes returns MinHash signatures for all questions in the given BenchmarkSet.
+func (s *Store) ListAllQuestionMinHashes(ctx context.Context, bsID string) ([][]byte, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT minhash FROM questions
+		WHERE bs_id = $1 AND minhash IS NOT NULL`,
+		bsID)
+	if err != nil {
+		return nil, fmt.Errorf("list question minhashes: %w", err)
+	}
+	defer rows.Close()
+
+	var result [][]byte
+	for rows.Next() {
+		var h []byte
+		if err := rows.Scan(&h); err != nil {
+			return nil, fmt.Errorf("scan minhash: %w", err)
+		}
+		result = append(result, h)
+	}
+	return result, rows.Err()
+}
+
 // GetLastQuestionTime returns the most recent question submission time for the given miner.
 func (s *Store) GetLastQuestionTime(ctx context.Context, questioner string) (*time.Time, error) {
 	var t time.Time

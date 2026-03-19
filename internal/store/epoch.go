@@ -11,19 +11,54 @@ import (
 	"github.com/awp-core/subnet-benchmark/internal/model"
 )
 
-// CreateEpoch creates an epoch settlement record.
-func (s *Store) CreateEpoch(ctx context.Context, epochDate time.Time, totalReward int64) (*model.Epoch, error) {
+// CreateOrResetEpoch creates an epoch record, or resets it for re-settlement.
+func (s *Store) CreateOrResetEpoch(ctx context.Context, epochDate time.Time, totalReward int64) (*model.Epoch, error) {
 	var e model.Epoch
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO epochs (epoch_date, total_reward)
 		VALUES ($1, $2)
-		RETURNING epoch_date, total_reward, total_scored, settled_at`,
+		ON CONFLICT (epoch_date) DO UPDATE SET
+			total_reward = EXCLUDED.total_reward,
+			total_scored = 0,
+			settled_at = NULL,
+			merkle_root = NULL,
+			published_at = NULL
+		RETURNING epoch_date, total_reward, total_scored, settled_at, merkle_root, published_at`,
 		epochDate, totalReward,
-	).Scan(&e.EpochDate, &e.TotalReward, &e.TotalScored, &e.SettledAt)
+	).Scan(&e.EpochDate, &e.TotalReward, &e.TotalScored, &e.SettledAt, &e.MerkleRoot, &e.PublishedAt)
 	if err != nil {
-		return nil, fmt.Errorf("create epoch: %w", err)
+		return nil, fmt.Errorf("create or reset epoch: %w", err)
 	}
 	return &e, nil
+}
+
+// DeleteEpochRewards removes all worker_epoch_rewards for an epoch (for re-settlement).
+func (s *Store) DeleteEpochRewards(ctx context.Context, epochDate time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM worker_epoch_rewards WHERE epoch_date = $1`, epochDate)
+	if err != nil {
+		return fmt.Errorf("delete epoch rewards: %w", err)
+	}
+	return nil
+}
+
+// DeleteEpochMerkleProofs removes all merkle_proofs for an epoch (for re-settlement).
+func (s *Store) DeleteEpochMerkleProofs(ctx context.Context, epochDate time.Time) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM merkle_proofs WHERE epoch_date = $1`, epochDate)
+	if err != nil {
+		return fmt.Errorf("delete epoch merkle proofs: %w", err)
+	}
+	return nil
+}
+
+// ResetBenchmarkFlags unmarks benchmark questions scored in the given epoch window (for re-settlement).
+func (s *Store) ResetBenchmarkFlags(ctx context.Context, start, end time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE questions SET benchmark = false
+		WHERE status = 'scored' AND scored_at >= $1 AND scored_at < $2 AND benchmark = true`, start, end)
+	if err != nil {
+		return fmt.Errorf("reset benchmark flags: %w", err)
+	}
+	return nil
 }
 
 // FinishEpoch sets the total_scored and settled_at for an epoch.

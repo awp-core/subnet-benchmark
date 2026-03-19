@@ -127,7 +127,7 @@ func run() error {
 	ansHandler := &handler.AnswerHandler{Service: answerSvc}
 	scoresHandler := &handler.WorkerScoresHandler{Store: s}
 	claimsHandler := &handler.ClaimsHandler{Store: s}
-	adminHandler := &handler.AdminHandler{Store: s, Settlement: settlementSvc, RtConfig: rtConfig}
+	adminHandler := &handler.AdminHandler{Store: s, Settlement: settlementSvc, Onchain: onchainSvc, RtConfig: rtConfig}
 	publicHandler := &handler.PublicHandler{Store: s}
 
 	mux := http.NewServeMux()
@@ -275,6 +275,7 @@ func registerRoutes(mux *http.ServeMux, s *store.Store,
 	mux.Handle("GET /admin/v1/epochs", adminAuth(http.HandlerFunc(admin.HandleListEpochs)))
 	mux.Handle("GET /admin/v1/epochs/{epoch_date}", adminAuth(http.HandlerFunc(admin.HandleGetEpoch)))
 	mux.Handle("POST /admin/v1/settle", adminAuth(http.HandlerFunc(admin.HandleTriggerSettlement)))
+	mux.Handle("POST /admin/v1/publish", adminAuth(http.HandlerFunc(admin.HandlePublishMerkleRoot)))
 	mux.Handle("GET /admin/v1/config", adminAuth(http.HandlerFunc(admin.HandleListConfig)))
 	mux.Handle("PUT /admin/v1/config", adminAuth(http.HandlerFunc(admin.HandleUpdateConfig)))
 }

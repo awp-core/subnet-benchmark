@@ -77,7 +77,7 @@ func (s *Store) ListAllAssignments(ctx context.Context, questionID int64) ([]mod
 // ListEpochs returns all epochs, newest first.
 func (s *Store) ListEpochs(ctx context.Context) ([]model.Epoch, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT epoch_date, total_reward, total_scored, settled_at
+		SELECT epoch_date, total_reward, total_scored, settled_at, merkle_root, published_at
 		FROM epochs ORDER BY epoch_date DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("list epochs: %w", err)
@@ -87,7 +87,7 @@ func (s *Store) ListEpochs(ctx context.Context) ([]model.Epoch, error) {
 	var result []model.Epoch
 	for rows.Next() {
 		var e model.Epoch
-		if err := rows.Scan(&e.EpochDate, &e.TotalReward, &e.TotalScored, &e.SettledAt); err != nil {
+		if err := rows.Scan(&e.EpochDate, &e.TotalReward, &e.TotalScored, &e.SettledAt, &e.MerkleRoot, &e.PublishedAt); err != nil {
 			return nil, fmt.Errorf("scan epoch: %w", err)
 		}
 		result = append(result, e)
@@ -99,9 +99,9 @@ func (s *Store) ListEpochs(ctx context.Context) ([]model.Epoch, error) {
 func (s *Store) GetEpoch(ctx context.Context, epochDate time.Time) (*model.Epoch, error) {
 	var e model.Epoch
 	err := s.db.QueryRowContext(ctx, `
-		SELECT epoch_date, total_reward, total_scored, settled_at
+		SELECT epoch_date, total_reward, total_scored, settled_at, merkle_root, published_at
 		FROM epochs WHERE epoch_date = $1`, epochDate,
-	).Scan(&e.EpochDate, &e.TotalReward, &e.TotalScored, &e.SettledAt)
+	).Scan(&e.EpochDate, &e.TotalReward, &e.TotalScored, &e.SettledAt, &e.MerkleRoot, &e.PublishedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
