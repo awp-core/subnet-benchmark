@@ -124,7 +124,7 @@ func WorkerAuth(cfg WorkerAuthConfig) func(http.Handler) http.Handler {
 					return
 				}
 				if !ok {
-					writeError(w, http.StatusForbidden, "registration denied")
+					writeError(w, http.StatusForbidden, "not registered on AWP RootNet, use AWP skill to register first")
 					return
 				}
 				miner, err = cfg.Store.CreateWorker(ctx, address)
