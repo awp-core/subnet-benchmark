@@ -114,7 +114,6 @@
   │   └── testutil/             # Shared test infrastructure
   ├── migrations/               # Database schema (single migration file)
   ├── docs/                     # Documentation (protocol, API, architecture, deployment)
-  ├── skills/                   # Agent skill for autonomous participation
   └── Makefile
   ```
 

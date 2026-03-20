@@ -87,7 +87,7 @@ Returns aggregate protocol statistics.
 
 ### GET /api/v1/leaderboard
 
-Returns top workers ranked by total reward.
+Returns top workers ranked by total reward. Question/answer counts and avg_score are **scoped to today's UTC epoch** (only workers with activity today are included). `total_reward` is cumulative across all epochs.
 
 **Query parameters:**
 - `limit` (optional): Number of entries, default `20`, max `100`
@@ -211,6 +211,27 @@ List all Merkle claim proofs for a recipient address. Public, no authentication 
 Get the Merkle claim proof for a specific address and epoch. `epoch_date` format: `YYYY-MM-DD`.
 
 **Response:** Single object with the same fields as the list response.
+
+### GET /api/v1/workers/{address}/today
+
+Returns a worker's performance stats for today's UTC epoch, including estimated reward.
+
+The estimated reward uses time-extrapolated question count (projects the current day's scored questions to a full 24h) and mirrors the settlement reward formula.
+
+**Response:**
+```json
+{
+  "address": "0x1234...abcd",
+  "questions_asked": 12,
+  "avg_ask_score": 4.2,
+  "questions_answered": 30,
+  "timed_out": 1,
+  "avg_answer_score": 4.5,
+  "composite_score": 0.87,
+  "raw_reward": 50000,
+  "estimated_reward": 43500
+}
+```
 
 ---
 
@@ -481,13 +502,21 @@ Serves an embedded HTML admin dashboard for managing the system.
 
 ### Settlement
 
-**POST /admin/v1/settle** — Trigger settlement for a specific epoch.
+**POST /admin/v1/settle** — Trigger settlement for a specific epoch. Idempotent: safe to retry on failure.
 
 ```json
 {"epoch_date": "2026-03-15"}
 ```
 
-Settlement computes rewards, builds the Merkle tree, resolves reward recipients via RootNet, and optionally publishes the Merkle root on-chain.
+Settlement computes rewards, builds the Merkle tree, resolves reward recipients via RootNet (with retry), and optionally publishes the Merkle root on-chain. Re-running settlement for the same epoch cleans up previous partial results and re-computes from scratch.
+
+**POST /admin/v1/publish** — Retry on-chain Merkle root publishing for a settled epoch.
+
+```json
+{"epoch_date": "2026-03-15"}
+```
+
+Use this when automatic publishing failed during settlement. Requires on-chain config to be set (`chain_rpc_url`, `contract_address`, `owner_private_key`).
 
 ### Configuration
 
