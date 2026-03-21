@@ -12,6 +12,7 @@ import (
 // RootNetClient interacts with the AWP RootNet API.
 type RootNetClient struct {
 	BaseURL    string
+	RtConfig   *RuntimeConfig // If set, BaseURL is read dynamically.
 	HTTPClient *http.Client
 }
 
@@ -22,6 +23,15 @@ func NewRootNetClient(baseURL string) *RootNetClient {
 			Timeout: 10 * time.Second,
 		},
 	}
+}
+
+func (c *RootNetClient) baseURL() string {
+	if c.RtConfig != nil {
+		if u := c.RtConfig.GetRootNetAPIURL(); u != "" {
+			return strings.TrimRight(u, "/")
+		}
+	}
+	return c.BaseURL
 }
 
 // addressCheckResponse is the response from GET /api/address/{address}/check
@@ -37,7 +47,7 @@ type addressCheckResponse struct {
 
 // IsRegistered checks if the given address is registered on the RootNet.
 func (c *RootNetClient) IsRegistered(ctx context.Context, address string) (bool, error) {
-	url := fmt.Sprintf("%s/api/address/%s/check", c.BaseURL, address)
+	url := fmt.Sprintf("%s/api/address/%s/check", c.baseURL(), address)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false, fmt.Errorf("build request: %w", err)
@@ -73,7 +83,7 @@ type userResponse struct {
 // GetRewardRecipient returns the reward recipient address for the given miner.
 // If no custom recipient is set, returns the miner's own address.
 func (c *RootNetClient) GetRewardRecipient(ctx context.Context, workerAddress string) (string, error) {
-	url := fmt.Sprintf("%s/api/users/%s", c.BaseURL, workerAddress)
+	url := fmt.Sprintf("%s/api/users/%s", c.baseURL(), workerAddress)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return "", fmt.Errorf("build request: %w", err)

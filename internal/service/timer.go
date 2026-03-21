@@ -96,7 +96,11 @@ func (tm *TimerManager) TryScore(ctx context.Context, questionID int64) {
 		}
 	}
 
-	if repliedCount >= tm.RequiredReplies {
+	required := tm.RequiredReplies
+	if tm.RtConfig != nil {
+		required = tm.RtConfig.QuestionConfig().RequiredAnswers
+	}
+	if repliedCount >= required {
 		if err := tm.Scoring.ScoreQuestion(ctx, questionID); err != nil {
 			log.Printf("timer: score question %d: %v", questionID, err)
 		}
@@ -144,11 +148,15 @@ func (tm *TimerManager) RecoverOnStartup(ctx context.Context) error {
 	}
 
 	// Phase 2: Try scoring any questions that might have enough replies
+	recoverRequired := tm.RequiredReplies
+	if tm.RtConfig != nil {
+		recoverRequired = tm.RtConfig.QuestionConfig().RequiredAnswers
+	}
 	scoreRows, err := tm.Store.DB().QueryContext(ctx, `
 		SELECT DISTINCT q.question_id FROM questions q
 		WHERE q.status = 'submitted'
 		AND (SELECT COUNT(*) FROM assignments a
-			WHERE a.question_id = q.question_id AND a.status = 'replied') >= $1`, tm.RequiredReplies)
+			WHERE a.question_id = q.question_id AND a.status = 'replied') >= $1`, recoverRequired)
 	if err != nil {
 		return fmt.Errorf("find scorable questions: %w", err)
 	}

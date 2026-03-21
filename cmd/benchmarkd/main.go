@@ -63,6 +63,7 @@ func run() error {
 	}
 
 	rootNet := service.NewRootNetClient(rtConfig.GetRootNetAPIURL())
+	rootNet.RtConfig = rtConfig
 
 	scoringSvc := service.NewScoringService(s)
 	scoringSvc.RtConfig = rtConfig
@@ -102,14 +103,12 @@ func run() error {
 		},
 	}
 
-	// On-chain service (from DB config, enabled when chain_rpc_url is non-empty)
-	var onchainSvc *service.OnchainService
-	onchainCfg := rtConfig.GetOnchainConfig()
-	if onchainCfg.RPCURL != "" && onchainCfg.ContractAddress != "" && onchainCfg.PrivateKeyHex != "" {
-		onchainSvc = &service.OnchainService{
-			Store:  s,
-			Config: onchainCfg,
-		}
+	// On-chain service — always created, reads config dynamically via RtConfig.
+	onchainSvc := &service.OnchainService{
+		Store:    s,
+		RtConfig: rtConfig,
+	}
+	if cfg := rtConfig.GetOnchainConfig(); cfg.RPCURL != "" && cfg.ContractAddress != "" && cfg.PrivateKeyHex != "" {
 		fmt.Println("on-chain publishing enabled")
 	}
 
@@ -237,14 +236,14 @@ func registerRoutes(mux *http.ServeMux, s *store.Store,
 
 	// Miner API (full auth)
 	fullAuth := handler.WorkerAuth(handler.WorkerAuthConfig{
-		Store: s, CheckSuspension: true, RegisterCheck: registerCheck,
+		Store: s, CheckSuspension: true, RegisterCheck: registerCheck, RtConfig: rtConfig,
 	})
 	mux.Handle("POST /api/v1/questions", fullAuth(http.HandlerFunc(q.HandleSubmit)))
 	mux.Handle("GET /api/v1/poll", fullAuth(http.HandlerFunc(poll.HandlePoll)))
 
 	// Miner API (light auth)
 	lightAuth := handler.WorkerAuth(handler.WorkerAuthConfig{
-		Store: s, CheckSuspension: false, RegisterCheck: registerCheck,
+		Store: s, CheckSuspension: false, RegisterCheck: registerCheck, RtConfig: rtConfig,
 	})
 	mux.Handle("POST /api/v1/answers", lightAuth(http.HandlerFunc(ans.HandleSubmit)))
 	mux.Handle("GET /api/v1/my/status", lightAuth(http.HandlerFunc(scores.HandleMyStatus)))

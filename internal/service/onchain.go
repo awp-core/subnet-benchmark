@@ -26,12 +26,25 @@ type OnchainConfig struct {
 
 // OnchainService handles submitting merkle roots to the SubnetManager contract.
 type OnchainService struct {
-	Store  *store.Store
-	Config OnchainConfig
+	Store    *store.Store
+	Config   OnchainConfig
+	RtConfig *RuntimeConfig // If set, config is read dynamically instead of from Config field.
+}
+
+func (svc *OnchainService) cfg() OnchainConfig {
+	if svc.RtConfig != nil {
+		return svc.RtConfig.GetOnchainConfig()
+	}
+	return svc.Config
 }
 
 // PublishMerkleRoot submits the merkle root for an epoch to the SubnetManager contract.
 func (svc *OnchainService) PublishMerkleRoot(ctx context.Context, epochDate time.Time) error {
+	cfg := svc.cfg()
+	if cfg.RPCURL == "" || cfg.ContractAddress == "" || cfg.PrivateKeyHex == "" {
+		return fmt.Errorf("on-chain publishing not configured (check chain_rpc_url, contract_address, owner_private_key)")
+	}
+
 	// 1. Get merkle root from database
 	root, err := svc.Store.GetEpochMerkleRoot(ctx, epochDate)
 	if err != nil {
@@ -42,14 +55,14 @@ func (svc *OnchainService) PublishMerkleRoot(ctx context.Context, epochDate time
 	}
 
 	// 2. Connect to chain
-	client, err := ethclient.DialContext(ctx, svc.Config.RPCURL)
+	client, err := ethclient.DialContext(ctx, cfg.RPCURL)
 	if err != nil {
 		return fmt.Errorf("dial rpc: %w", err)
 	}
 	defer client.Close()
 
 	// 3. Load private key
-	privateKey, err := crypto.HexToECDSA(svc.Config.PrivateKeyHex)
+	privateKey, err := crypto.HexToECDSA(cfg.PrivateKeyHex)
 	if err != nil {
 		return fmt.Errorf("parse private key: %w", err)
 	}
@@ -65,8 +78,8 @@ func (svc *OnchainService) PublishMerkleRoot(ctx context.Context, epochDate time
 	}
 
 	// 5. Build and sign transaction
-	contractAddr := common.HexToAddress(svc.Config.ContractAddress)
-	chainID := big.NewInt(svc.Config.ChainID)
+	contractAddr := common.HexToAddress(cfg.ContractAddress)
+	chainID := big.NewInt(cfg.ChainID)
 
 	nonce, err := client.PendingNonceAt(ctx, fromAddress)
 	if err != nil {

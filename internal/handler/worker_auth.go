@@ -26,10 +26,11 @@ func WorkerAddressFromContext(ctx context.Context) string {
 // WorkerAuthConfig is the configuration for the miner auth middleware.
 type WorkerAuthConfig struct {
 	Store            *store.Store
-	TimestampMaxDiff time.Duration // Max allowed timestamp drift
+	TimestampMaxDiff time.Duration // Max allowed timestamp drift (fallback if RtConfig is nil)
 	CheckSuspension  bool          // Whether to check suspension
 	SignatureOnly    bool          // If true, only verify signature (no DB lookup, no registration)
 	RegisterCheck    func(ctx context.Context, address string) (bool, error) // Registration eligibility check
+	RtConfig         interface{ GetTimestampMaxDiff() time.Duration }        // Dynamic config (optional)
 }
 
 // MinerAuth returns the miner signature authentication middleware.
@@ -65,7 +66,11 @@ func WorkerAuth(cfg WorkerAuthConfig) func(http.Handler) http.Handler {
 			if diff < 0 {
 				diff = -diff
 			}
-			if diff > cfg.TimestampMaxDiff {
+			maxDiff := cfg.TimestampMaxDiff
+			if cfg.RtConfig != nil {
+				maxDiff = cfg.RtConfig.GetTimestampMaxDiff()
+			}
+			if diff > maxDiff {
 				writeError(w, http.StatusUnauthorized, "timestamp expired")
 				return
 			}

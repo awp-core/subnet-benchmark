@@ -325,11 +325,6 @@ func (h *AdminHandler) HandlePublishMerkleRoot(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if h.Onchain == nil {
-		writeError(w, http.StatusServiceUnavailable, "on-chain publishing not configured")
-		return
-	}
-
 	if err := h.Onchain.PublishMerkleRoot(r.Context(), epochDate); err != nil {
 		writeError(w, http.StatusInternalServerError, "publish failed: "+err.Error())
 		return

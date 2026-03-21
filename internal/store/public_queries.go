@@ -44,11 +44,6 @@ func (s *Store) GetLeaderboard(ctx context.Context, limit int) ([]LeaderboardEnt
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	// Today's UTC date range
-	now := time.Now().UTC()
-	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	todayEnd := todayStart.Add(24 * time.Hour)
-
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT
 			m.address,
@@ -64,25 +59,20 @@ func (s *Store) GetLeaderboard(ctx context.Context, limit int) ([]LeaderboardEnt
 		LEFT JOIN (
 			SELECT questioner, count(*) AS cnt, avg(score) AS avg_score
 			FROM questions WHERE status = 'scored'
-			AND scored_at >= $2 AND scored_at < $3
 			GROUP BY questioner
 		) q ON q.questioner = m.address
 		LEFT JOIN (
-			SELECT a.worker, count(*) AS cnt, avg(a.score) AS avg_score
-			FROM assignments a
-			JOIN questions q2 ON q2.question_id = a.question_id
-			WHERE a.status = 'scored'
-			AND q2.scored_at >= $2 AND q2.scored_at < $3
-			GROUP BY a.worker
+			SELECT worker, count(*) AS cnt, avg(score) AS avg_score
+			FROM assignments WHERE status = 'scored'
+			GROUP BY worker
 		) a ON a.worker = m.address
 		LEFT JOIN (
 			SELECT worker_address, sum(final_reward) AS total
 			FROM worker_epoch_rewards
 			GROUP BY worker_address
 		) r ON r.worker_address = m.address
-		WHERE COALESCE(q.cnt, 0) + COALESCE(a.cnt, 0) > 0
 		ORDER BY total_reward DESC, avg_score DESC
-		LIMIT $1`, limit, todayStart, todayEnd)
+		LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get leaderboard: %w", err)
 	}
