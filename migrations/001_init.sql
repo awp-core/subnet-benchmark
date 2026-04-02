@@ -1,5 +1,5 @@
 -- 001_init.sql
--- Benchmark Subnet — complete schema
+-- Benchmark Worknet — complete schema
 
 -- ============================================================
 -- 1. workers

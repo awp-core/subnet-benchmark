@@ -2,7 +2,7 @@
 
 ## Overview
 
-Benchmark Subnet (`benchmarkd`) is a single Go binary HTTP server backed by PostgreSQL. It follows a layered architecture with no external frameworks — only Go standard library + `lib/pq` driver + `go-ethereum` crypto/ethclient.
+Benchmark Worknet (`benchmarkd`) is a single Go binary HTTP server backed by PostgreSQL. It follows a layered architecture with no external frameworks — only Go standard library + `lib/pq` driver + `go-ethereum` crypto/ethclient.
 
 ```
 +-------------------------------------------------+
