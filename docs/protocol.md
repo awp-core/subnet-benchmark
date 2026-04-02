@@ -1,4 +1,4 @@
-# Benchmark Subnet Protocol
+# Benchmark Worknet Protocol
 
 ## Overview
 

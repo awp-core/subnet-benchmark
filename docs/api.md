@@ -1,4 +1,4 @@
-# Benchmark Subnet API Reference
+# Benchmark Worknet API Reference
 
 ## Overview
 
